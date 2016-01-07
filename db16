@@ -1,0 +1,192 @@
+#!/usr/bin/env node
+
+var pkg      = require('./package.json');
+var fs       = require('fs');
+var chalk    = require('chalk');
+var indent   = require('indent-string');
+var program  = require('commander');
+var download = require('download-github-repo');
+var less     = require('less');
+var parseCss = require('css').parse;
+var find     = require('lodash.find');
+var result   = require('lodash.result');
+var assign   = require('lodash.assign');
+var yamljs   = require('yamljs');
+
+var drepo;
+
+program
+  .version(pkg.version)
+  .arguments('<duotone-repo>')
+  .description(pkg.description);
+
+program.on('--help', function(){
+  console.log('  Examples:');
+  console.log('');
+  console.log('    $ ./db16 simurai/duotone-dark-syntax');
+  console.log('');
+});
+
+program
+  .action(function (drepoarg) {
+     drepo = drepoarg;
+  })
+  .parse(process.argv);
+
+if (!drepo) {
+  if (!process.argv.slice(2).length) {
+    program.help();
+  }
+}
+
+var repoParts = drepo.split('/');
+if (repoParts.length < 2) {
+  console.error(chalk.red('Invalid repo name. Should be regular github repo like `simurai/duotone-dark-syntax`'));
+  process.exit(1);
+}
+var userName = repoParts[0];
+var themeName = repoParts[1];
+var themePath = 'atom-themes/' + themeName;
+var lessFile = themePath + '/index.less';
+
+console.log(chalk.magenta('Derived theme name: ' + themeName));
+console.log(chalk.magenta('Derived theme author: ' + userName));
+console.log(chalk.green('Fetching ' + drepo + ' into ' + themePath));
+download(drepo, themePath, readIndexLess);
+
+
+/**
+ * readIndexLess
+ *
+ */
+function readIndexLess() {
+  console.log(chalk.green('Reading ' + lessFile));
+  fs.readFile(lessFile, compileLess);
+}
+
+
+/**
+ * compileLess
+ *
+ * @param err
+ * @param data
+ */
+function compileLess(err, data) {
+  console.log(chalk.green('Compiling ' + lessFile));
+  if (err) {
+    throw err;
+    process.exit(1);
+  }
+
+  less
+    .render(String(data), {
+      paths: [ './' + themePath ],  // Specify search paths for @import directives
+      filename: 'style.less',       // Specify a filename, for better error messages
+    })
+    .then(convertToBase16);
+}
+
+
+/**
+ * convertToBase16
+ *
+ * @param output
+ */
+function convertToBase16(output) {
+  var css = output.css;
+  var parsedCss = parseCss(css);
+  var rules = parsedCss.stylesheet.rules;
+
+  var scheme = {};
+
+  scheme['base00'] =
+    'FF0000';
+  scheme['base01'] =
+    'FFFF00';
+  scheme['base02'] = /* function names, variable names */
+    getColor(rules, '.uno-3', 'color'); /* #a391fd */
+  scheme['base03'] =
+    getColor(rules, ':host .selection .region', 'background-color'); /* #454257 */
+  scheme['base04'] = /* gutter,current line text */
+    getColor(rules, ':host .wrap-guide', 'background-color'); /* #413d51 */
+  scheme['base05'] = /* pum,visual select background */
+    getColor(rules, '.uno-4', 'color'); /* #6c6783 */
+  scheme['base06'] = /* gutter,current line background */
+    getColor(rules, ':host .gutter .line-number.cursor-line', 'background-color');   /* #312e3d */
+  scheme['base07'] = /* background */
+    getColor(rules, ':host', 'background-color'); /* #2a2734 */
+  scheme['base08'] =
+    getColor(rules, '.uno-4', 'color'); /* #6c6783 */
+  scheme['base09'] = /* number values in css properties */
+    getColor(rules, '.duo-1', 'color'); /* #ffcc99 */
+  scheme['base0A'] =
+    getColor(rules, '.uno-1', 'color'); /* #eeebff */
+  scheme['base0B'] = /* strings */
+    getColor(rules, '.duo-1', 'color'); /* #ffcc99 */
+  scheme['base0C'] =
+    getColor(rules, '.duo-3', 'color'); /* #7c756e */
+  scheme['base0D'] = /* keyword function */
+    getColor(rules, '.duo-2', 'color'); /* #e49e58 */
+  scheme['base0E'] =
+    getColor(rules, '.uno-2', 'color'); /* #c4b8fe */
+  scheme['base0F'] =
+    getColor(rules, ':host .cursor', 'border-color'); /* #ffa852 */
+
+  outputSchemeYml(scheme);
+}
+
+
+function getColor(rules, selector, property) {
+  return getProperty(getRule(rules, selector), property).replace('#', '');
+}
+
+
+/**
+ * getRule
+ *
+ * @param rules
+ * @param selector
+ */
+function getRule(rules, selector) {
+  return find(rules, function (rule, key) {
+    if (rule.type !== 'rule') {
+      return false;
+    }
+    return rule.selectors.indexOf(selector) !== -1;
+  });
+}
+
+
+/**
+ * getProperty
+ *
+ * @param selector
+ * @param property
+ */
+function getProperty(selector, property) {
+  return result(find(selector.declarations, function (dec, key) {
+    return (dec.property === property);
+  }), 'value');
+}
+
+
+function outputSchemeYml(colors) {
+  console.log(chalk.green('Adding metadata'));
+
+  var scheme = assign({
+    scheme: themeName,
+    author: userName + ' (converted via duotone-base16)',
+  }, colors);
+
+  var schemeYaml = yamljs.stringify(scheme, 4);
+  console.log(chalk.magenta('Generated YAML:'));
+  console.log(indent(schemeYaml, ' ', 4));
+
+  var ymlPath = 'base16-schemes/' + themeName + '.yml';
+
+  console.log(chalk.green('Writing ' + ymlPath));
+  fs.writeFile(ymlPath, schemeYaml, function (err) {
+    if (err) throw err;
+    console.log(chalk.green('Saved ' + ymlPath));
+  });
+}
