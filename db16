@@ -99,10 +99,10 @@ function convertToBase16(output) {
 
   var scheme = {};
 
-  scheme['base00'] =
-    'FF0000';
-  scheme['base01'] =
-    'FFFF00';
+  scheme['base00'] = /* background - terminal */
+    getColor(rules, ':host', 'background-color'); /* #2a2734 */
+  scheme['base01'] = /* gutter,current line background - terminal */
+    getColor(rules, ':host .gutter .line-number.cursor-line', 'background-color');   /* #312e3d */
   scheme['base02'] = /* function names, variable names */
     getColor(rules, '.uno-3', 'color'); /* #a391fd */
   scheme['base03'] =
